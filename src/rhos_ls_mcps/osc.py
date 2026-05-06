@@ -90,7 +90,7 @@ OSC_PARAMS: list[str] = []
 ##########
 # METHODS AND CLASSES CALLED FROM main.py
 
-def initialize(mcp_osp: FastMCP, mcp_ocp: FastMCP):
+def initialize(mcp_osp: FastMCP):
     global ALLOWED_COMMANDS, OSC_PARAMS
 
     mcp_osp.add_tool(openstack_cli_mcp_tool,

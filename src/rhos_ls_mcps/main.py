@@ -24,7 +24,7 @@ from rhos_ls_mcps import utils
 logger = logging.getLogger(__name__)
 
 
-def initialize(config: settings.Settings) -> tuple[FastMCP, FastMCP]:
+def initialize(config: settings.Settings) -> tuple[FastMCP | None, FastMCP | None]:
     """Initialize logging and the MCP server with the tools."""
     mcp_logging.init_logging(config)
     logger.info("Initializing RHOSO MCP server")
@@ -34,46 +34,56 @@ def initialize(config: settings.Settings) -> tuple[FastMCP, FastMCP]:
 
     # Use stateless_http=True to support multiple workers, otherwise a
     # session can go to a different worker and it will fail.
-    mcp_osp = FastMCP(
-        "rhoso-tools",
+    security_kwargs = dict(
         stateless_http=True,
         auth_server_provider=security_cfg.auth_server_provider,
         auth=security_cfg.auth,
         token_verifier=security_cfg.token_verifier,
         transport_security=security_cfg.transport_security,
     )
-    mcp_ocp = FastMCP(
-        "ocp-tools",
-        stateless_http=True,
-        auth_server_provider=security_cfg.auth_server_provider,
-        auth=security_cfg.auth,
-        token_verifier=security_cfg.token_verifier,
-        transport_security=security_cfg.transport_security,
-    )
-    mcp_osp.settings.streamable_http_path = "/"
-    mcp_ocp.settings.streamable_http_path = "/"
 
-    osc.initialize(mcp_osp, mcp_ocp)
-    oc.initialize(mcp_osp, mcp_ocp)
+    mcp_osp = None
+    mcp_ocp = None
+
+    if config.openstack.enabled:
+        mcp_osp = FastMCP("rhoso-tools", **security_kwargs)
+        mcp_osp.settings.streamable_http_path = "/"
+        osc.initialize(mcp_osp)
+
+    if config.openshift.enabled:
+        mcp_ocp = FastMCP("ocp-tools", **security_kwargs)
+        mcp_ocp.settings.streamable_http_path = "/"
+        oc.initialize(mcp_ocp)
+
+    if not mcp_osp and not mcp_ocp:
+        raise RuntimeError(
+            "Both OpenStack and OpenShift services are disabled. "
+            "Enable at least one service in the configuration."
+        )
 
     return mcp_osp, mcp_ocp
 
 
 def create_app():
-    @contextlib.asynccontextmanager
-    async def lifespan(app: Starlette):
-        async with contextlib.AsyncExitStack() as stack:
-            await stack.enter_async_context(mcp_osp.session_manager.run())
-            await stack.enter_async_context(mcp_ocp.session_manager.run())
-            yield
-
     config = settings.load_config()
     mcp_osp, mcp_ocp = initialize(config)
 
-    starlette_app = Starlette(routes=[
-        Mount("/openstack", app=mcp_osp.streamable_http_app()),
-        Mount("/openshift", app=mcp_ocp.streamable_http_app()),
-    ], lifespan=lifespan)
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette):
+        async with contextlib.AsyncExitStack() as stack:
+            if mcp_osp:
+                await stack.enter_async_context(mcp_osp.session_manager.run())
+            if mcp_ocp:
+                await stack.enter_async_context(mcp_ocp.session_manager.run())
+            yield
+
+    routes = []
+    if mcp_osp:
+        routes.append(Mount("/openstack", app=mcp_osp.streamable_http_app()))
+    if mcp_ocp:
+        routes.append(Mount("/openshift", app=mcp_ocp.streamable_http_app()))
+
+    starlette_app = Starlette(routes=routes, lifespan=lifespan)
 
     # Wrap ASGI application with CORS middleware to allow browser-based clients to work
     app = CORSMiddleware(
