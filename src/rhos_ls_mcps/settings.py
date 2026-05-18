@@ -12,12 +12,14 @@ from rhos_ls_mcps import oc_defaults
 logger = logging.getLogger(__name__)
 
 class OpenStackSettings(BaseSettings):
+    enabled: bool = Field(default=True, description="Enable OpenStack MCP tools")
     allow_write: bool = Field(default=False, description="Allow write operations (default: false)")
     ca_cert: Optional[str] = Field(default=None, description="CA certificate bundle file (Env: OS_CACERT)")
     insecure: bool = Field(default=False, description="Allow insecure SSL connections (Env: OS_INSECURE)")
 
 
 class OpenShiftSettings(BaseSettings):
+    enabled: bool = Field(default=True, description="Enable OpenShift MCP tools")
     allow_write: bool = Field(default=False, description="Allow write operations (default: false)")
     insecure: bool = Field(default=False, description="Allow insecure SSL connections")
     allowed_commands: list[str] = Field(default=oc_defaults.DEFAULT_ALLOWED_COMMANDS, description="Allowed commands")
